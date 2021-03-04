@@ -27,8 +27,8 @@ colnames(movies) <- c("movieId", "title", "genres")
 
 # if using R 3.6 or earlier:
 #movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(levels(movieId))[movieId],
-                                           #title = as.character(title),
-                                           #genres = as.character(genres))
+#title = as.character(title),
+#genres = as.character(genres))
 # if using R 4.0 or later:
 movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId),
                                            title = as.character(title),
@@ -182,42 +182,55 @@ test_index <- createDataPartition(y=edx$rating, times = 1, p=0.1, list=F)
 edx_test <- edx[test_index,]
 edx_train <- edx[-test_index,]
 
+
+
+
+
+
 # This ensures we don't test on movies/users we have never seen before
 edx_test <- edx_test %>% semi_join(edx_train, by='movieId') %>%
   semi_join(edx_train, by='userId')
 
 # This model predicts the avg movie rating for all cases
-mu_hat <- edx$rating %>% mean()
-rmse_one <- RMSE(mu_hat, edx_test$rating)
+mu <- edx_train$rating %>% mean()
+(naive_rmse <- RMSE(edx_test$rating, mu))
+
+
+
+
 
 
 # This model builds on previous by introducing a movie bias term
-movie_avgs <- edx_train %>% group_by(movieId) %>% 
-  summarise(b_i=mean(rating-mu_hat))
-model_two <- mu_hat + edx_test %>% left_join(movie_avgs, by='movieId') %>%
-  pull(b_i)
-rmse_two <- RMSE(model_two, edx_test$rating)
+movie_avgs <- edx_train %>% group_by(movieId) %>% summarise(b_i=mean(rating-mu))
+movie_bias_model <- mu + edx_test %>% left_join(movie_avgs, by='movieId') %>% pull(b_i)
+(movie_bias_rmse <- RMSE(edx_test$rating, movie_bias_model))
+
+
+
+
+
 
 
 # This model builds on previous by introducing a user bias term
-user_avgs <- edx_train %>% left_join(movie_avgs, by='movieId') %>%
-  group_by(userId) %>% summarise(b_u=mean(rating-mu_hat-b_i))
-model_three <- edx_test %>% left_join(movie_avgs, by='movieId') %>%
-  left_join(user_avgs, by='userId') %>% mutate(pred=mu_hat+b_i+b_u) %>%
-  pull(pred)
-rmse_three <- RMSE(model_three, edx_test$rating)
+user_avgs <- edx_train %>% left_join(movie_avgs, by='movieId') %>% group_by(userId) %>% summarise(b_u=mean(rating-mu-b_i))
+user_movie_bias_model <- edx_test %>% left_join(movie_avgs, by='movieId') %>% left_join(user_avgs, by='userId') %>%
+  mutate(pred=mu+b_i+b_u) %>% pull(pred)
+(user_movie_bias_rmse <- RMSE(edx_test$rating, user_movie_bias_model))
 
 
-# This model builds on previous by introducing a genre bias term 
-# Pg 645  -actually no
+
+
+
+
 
 # This model builds on previous by introducing a regularization (lambda) term 
-# Pg 651 
-lambdas <- seq(0, 10, 0.25)
+
+# Use cross-validation to search for best lambda term:
+#lambdas <- seq(0, 10, 0.25)
+lambdas <- seq(4, 5, 0.1)
 rmses <- sapply(lambdas, function(l){
   mu <- mean(edx_train$rating)
-  b_i <- edx_train %>% group_by(movieId) %>% 
-    summarise(b_i=sum(rating-mu)/(n()+l))
+  b_i <- edx_train %>% group_by(movieId) %>% summarise(b_i=sum(rating-mu)/(n()+l))
   
   b_u <- edx_train %>% left_join(b_i, by='movieId') %>%
     group_by(userId) %>% summarise(b_u=sum(rating-b_i-mu)/(n()+l))
@@ -228,15 +241,55 @@ rmses <- sapply(lambdas, function(l){
   
   return(RMSE(predicted_ratings, edx_test$rating))
 })
+# visualize the search for best lambda
 qplot(lambdas, rmses)
+# save the best lambda term
 (lambda <- lambdas[which.min(rmses)])
 
-model_four <- 
+#Regularized movie bias term
+b_i <- edx_train %>% group_by(movieId) %>% summarise(b_i=sum(rating-mu)/(n()+lambda))
+#Regularized user bias term
+b_u <- edx_train %>% left_join(b_i, by='movieId') %>%
+  group_by(userId) %>% summarise(b_u=sum(rating-b_i-mu)/(n()+lambda))
+
+regularized_user_movie_model <- edx_test %>% left_join(b_i, by='movieId') %>%
+  left_join(b_u, by='userId') %>% mutate(pred=mu+b_i+b_u) %>% pull(pred)
+(regularized_user_movie_rmse <- RMSE(edx_test$rating, regularized_user_movie_model))
 
 
 
-methods <- c('mu_hat', '+ movie bias', '+ user bias')
-rmses <- c(rmse_one, rmse_two, rmse_three)
+
+
+
+
+#This model will use matrix factorization 
+#This is an alternative method that is not restricted by memory
+if(!require(recosystem)) install.packages("recosystem", repos = "http://cran.us.r-project.org")
+set.seed(69, sample.kind = 'Rounding')
+
+#inputs are stored in memory
+train_set <- with(edx_train, data_memory(user_index=userId, item_index=movieId, rating=rating))
+test_set <- with(edx_test, data_memory(user_index=userId, item_index=movieId, rating=rating))
+
+r <- Reco()
+
+#train with default parameters
+r$train(train_set)
+
+#predict
+matrix_factor <- r$predict(test_set, out_memory())
+
+(matrix_factor_rmse <- RMSE(matrix_factor_rmse, edx_test$rating))
+
+
+
+
+
+
+
+# Evaluate the different models
+methods <- c('Just the average', '+ movie bias', '+ user bias', 'regularized model', 'matrix factorization')
+rmses <- c(naive_rmse, movie_bias_rmse, user_movie_bias_rmse, regularized_user_movie_rmse, matrix_factor_rmse)
 (model_evaluations <- tibble(method=methods, RMSE=rmses))
 
 ##########################################################
