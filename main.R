@@ -279,7 +279,7 @@ r$train(train_set)
 #predict
 matrix_factor <- r$predict(test_set, out_memory())
 
-(matrix_factor_rmse <- RMSE(matrix_factor_rmse, edx_test$rating))
+(matrix_factor_rmse <- RMSE(matrix_factor, edx_test$rating))
 
 
 
