@@ -25,14 +25,14 @@ The key steps that were performed are:
   + Introduce a movie bias term
   + Introduce a user bias term
   + Introduce a regularization term lambda
-  + Use matrix factorization
+  + Use matrix factorization (with and without optimizing parameters)
 5. Train with best performing model and test on validation set
 6. Reflect on the results
 
 #Method
 ###section that explains the process and techniques used, including data cleaning, data exploration and visualization, insights gained, and your modeling approach
 
-The data was downloaded from the grouplens website and 10% was immidiately set aside as the validation set. Looking at the test set, there appears to be two useful data munging operations we can do. The timestamp predictor appears as a comon format of seconds from xxx. Although this is a common format, it is unintuitive to work with so this is converted to a date time format. The release year may also have some value to our exploration so it is extracted from the movie title.
+The data was downloaded from the grouplens website and 10% was immediately set aside as the validation set. Looking at the test set, there appears to be two useful data munging operations we can do. The timestamp predictor appears as a comon format of seconds from xxx. Although this is a common format, it is unintuitive to work with so this is converted to a date time format. The release year may also have some value to our exploration so it is extracted from the movie title.
 
 
 
@@ -44,9 +44,11 @@ The data was downloaded from the grouplens website and 10% was immidiately set a
 
 
 
-To start building a model, we will first use the simplest approach to use as a benchmark and itteratively improve upon it. The first model will predict the average movie rating for all movies. 
+To start building a model, we will first arrange the data into a matrix that has users in the rows and movies in the columns. The intersection between a given movie and a given user is the rating of that movie by that user. We will fill in the NA values to predict how each user would rate each movie. First we can use the simplest approach as a benchmark and itteratively improve upon it. The first model will predict the average movie rating for all movies. 
 
-We know that not all movies are recieved by audiences equally. 
+We know that not all movies are received by audiences equally. We can account for this by introducing a bias term,   
+
+Likewise, different users have different movie preferences and movie critique patterns/tendencies. We can introduce a bias term for users 
 
 #Results
 ###section that presents the modeling results and discusses the model performance
