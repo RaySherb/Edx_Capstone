@@ -32,7 +32,10 @@ The key steps that were performed are:
 #Method
 ###section that explains the process and techniques used, including data cleaning, data exploration and visualization, insights gained, and your modeling approach
 
-The data was downloaded from the grouplens website and 10% was immediately set aside as the validation set. Looking at the test set, there appears to be two useful data munging operations we can do. The timestamp predictor appears as a comon format of seconds from xxx. Although this is a common format, it is unintuitive to work with so this is converted to a date time format. The release year may also have some value to our exploration so it is extracted from the movie title.
+The data was downloaded from the grouplens website and 10% was immediately set aside as the validation set. Looking at the test set, there appears to be two useful data munging operations we can do immediately. The timestamp predictor appears as a common format of seconds since midnight (UTC) January 1st, 1970. Although this is a common format, it is un-intuitive to work with so this is converted to a date time format. The release year may also have some value to our exploration so it is extracted from the movie title.
+
+
+Let's now visualize each of our predictors, aswell as some hypothesis that could merrit further investigation.
 
 
 
@@ -43,12 +46,18 @@ The data was downloaded from the grouplens website and 10% was immediately set a
 
 
 
+We will use the simplest approach as a benchmark and itteratively improve upon it. Therefore, our first model will predict the average movie rating for all movies. 
 
-To start building a model, we will first arrange the data into a matrix that has users in the rows and movies in the columns. The intersection between a given movie and a given user is the rating of that movie by that user. We will fill in the NA values to predict how each user would rate each movie. First we can use the simplest approach as a benchmark and itteratively improve upon it. The first model will predict the average movie rating for all movies. 
+To account for the fact that movies are not received by audiences equally, we can introducing a bias term. This first bias term will represent how a particular movie deviates from the average of all movies.
 
-We know that not all movies are received by audiences equally. We can account for this by introducing a bias term,   
+Likewise, different users have different movie critiquing tendencies. We can introduce a bias term for users that will represent how a particular user deviates from the average user in rating movies.
 
-Likewise, different users have different movie preferences and movie critique patterns/tendencies. We can introduce a bias term for users 
+Now, let's see how the results would change if we reversed the order of the calculation of our bias terms.
+
+Taking the best form of our biased model, we can introduce a regularization term, lambda, to combat over-fitting. In the context of the Netflix challenge, over-fitting could occur due to a rarely watched movie being incorrectly labeled as exceptionally good and '`leading to unhelpful recommendations. We will use cross-validation to search for the optimal lambda term.
+
+We will now try an alternate approach using matrix factorization. The idea behind this approach is that if we arrange the data into a matrix of users x movies, with the intersections representing an individual rating, then we can solve for the matrix of user-preferences and the matrix of movie characteristics, that when multiplied, give the completed matrix which we have just formed. Another way of explaining it is that we find similarities between movies and similarities between users. Then we can recommend movies that similar users liked, or we can recommend a movie that is similar to others that a user has liked.
+The Recosystem package was built specifically to handle this type of matrix factorization. Recosystem takes three vectors: one for the users, one for the movies, and one for the ratings. We will include 2 approaches one without tuning the model parameters, and one after tuning the parameters. In tuning the parameters, multiple values were experimented with, however this process took a significant amount of computational time, so only these two models are included here.
 
 #Results
 ###section that presents the modeling results and discusses the model performance
