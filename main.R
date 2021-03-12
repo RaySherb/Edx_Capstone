@@ -70,6 +70,37 @@ pattern2 <- "\\d{4}"
 edx <- mutate(edx, release=str_extract(edx$title, pattern))#%>%
 edx <- edx %>% mutate(release=as.numeric(str_extract(edx$release, pattern2)))
 
+# Visualize each of the predictors
+# userId, movieId, rating, timestamp, title, genres, date, release
+
+# User ratings
+edx %>% group_by(userId) %>% summarise(n = n()) %>% 
+  ggplot(aes(n)) + geom_histogram() + scale_x_continuous(trans='log10')
+# Movie ratings
+edx %>% group_by(movieId) %>% summarise(n = n()) %>% 
+  ggplot(aes(n)) + geom_histogram() + scale_x_continuous(trans='log10')
+# Ratings
+edx %>% group_by(rating) %>% summarise(n = n()) %>%  
+  ggplot(aes(x=rating, y=n)) + geom_line()
+# Timestamp
+edx %>% mutate(date=round_date(date, unit='week')) %>% group_by(date) %>%
+  summarise(rating=mean(rating)) %>%
+  ggplot(aes(x=date, y=rating)) + geom_point() + geom_smooth()
+# Genre vs rating count; as % (see which genre has most ratings)
+# Genre count (see which genre has most movies)
+# Genre rating (see rating distributions of genres {barchart for 1star, 2star, 3.5star filled with %of movies from genre})
+
+
+# Movies by year of release
+# Rating by years after release, grouped by average rating (do good movies get higher ratings with nostalgia and shitty movies start higher because of trailers and hype?)
+
+
+
+
+
+
+
+
 # Christmas movies (proof that holiday movie discrimination is pointless)
 christmas_pattern <- "Christmas"
 christmas_movies <- edx %>% 
