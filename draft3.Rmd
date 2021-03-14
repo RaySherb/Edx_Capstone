@@ -1,8 +1,8 @@
 ---
 title: "Movie Recommendation System"
 author: "Ray Sherbourne"
-date: "March 4, 2021"
-output: html_document
+date: "March 13, 2021"
+output: pdf
 ---
 
 ```{r setup, include=FALSE}
@@ -35,6 +35,10 @@ The key steps that are to be performed are:
 The data was downloaded from the grouplens website and 10% was immediately set aside as the validation set. 
 
 ```{r, echo=FALSE}
+##########################################################
+# Create edx set, validation set (final hold-out test set)
+##########################################################
+
 # Note: this process could take a couple of minutes
 
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
@@ -87,18 +91,21 @@ edx <- rbind(edx, removed)
 
 rm(dl, ratings, movies, test_index, temp, movielens, removed)
 
+
 ```
 
 
 Looking at the test set, there appears to be two useful data munging operations we can do immediately:
 * The timestamp predictor appears as a common format of seconds since midnight (UTC) January 1st, 1970. Although this is a common format, it is un-intuitive to work with so this is converted to a date time format. 
 ```{r, echo=FALSE}
+# Converts timestamp to use-able date of review format
 if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
 library(lubridate)
 edx <- mutate(edx, date = as_datetime(timestamp))
 ```
 * The release year may have some value to our exploration so it is extracted from the movie title.
 ```{r, echo=FALSE}
+# Extracts release year
 if(!require(stringr)) install.packages("stringr", repos = "http://cran.us.r-project.org")
 library(stringr)
 pattern <- "\\(\\d{4}\\)"
@@ -133,6 +140,10 @@ edx %>% mutate(date=round_date(date, unit='week')) %>% group_by(date) %>%
 
 Before we start building our first model, we need to split the data into a training and test set. (Reminder that the validation set replicates data that we don't have yet)
 ```{r, echo=FALSE}
+##########################################################
+# Model Building / Select Machine Learning Algorithm
+##########################################################
+
 # Split the training set into training/test sets to design/test models
 set.seed(420, sample.kind = 'Rounding')
 test_index <- createDataPartition(y=edx$rating, times = 1, p=0.1, list=F)
@@ -142,7 +153,7 @@ edx_train <- edx[-test_index,]
 # This ensures we don't test on movies/users we have never seen before
 edx_test <- edx_test %>% semi_join(edx_train, by='movieId') %>%
   semi_join(edx_train, by='userId')
-rm(test_index)
+rm(test_index)s
 ```
 We will use the simplest approach as a benchmark and iteratively improve upon it. Therefore, our first model will predict the average movie rating for all movies. 
 ```{r, echo=FALSE}
@@ -152,12 +163,14 @@ mu <- edx_train$rating %>% mean()
 ```
 To account for the fact that movies are not received by audiences equally, we can introducing a bias term. This first bias term will represent how a particular movie deviates from the average of all movies.
 ```{r, echo=FALSE}
+# This model builds on previous by introducing a movie bias term
 movie_avgs <- edx_train %>% group_by(movieId) %>% summarise(b_i=mean(rating-mu))
 movie_bias_model <- mu + edx_test %>% left_join(movie_avgs, by='movieId') %>% pull(b_i)
 (movie_bias_rmse <- RMSE(edx_test$rating, movie_bias_model))
 ```
 Likewise, different users have different movie critiquing tendencies. We can introduce a bias term for users that will represent how a particular user deviates from the average user in rating movies.
 ```{r, echo=FALSE}
+# This model builds on previous by introducing a user bias term
 user_avgs <- edx_train %>% left_join(movie_avgs, by='movieId') %>% group_by(userId) %>% summarise(b_u=mean(rating-mu-b_i))
 user_movie_bias_model <- edx_test %>% left_join(movie_avgs, by='movieId') %>% left_join(user_avgs, by='userId') %>%
   mutate(pred=mu+b_i+b_u) %>% pull(pred)
@@ -165,7 +178,6 @@ user_movie_bias_model <- edx_test %>% left_join(movie_avgs, by='movieId') %>% le
 ```
 Now, let's see how the results would change if we reversed the order of the calculation of our bias terms.
 ```{r, echo=FALSE}
-# This model builds on mu by introducing a user bias term
 user_avgs <- edx_train %>% group_by(userId) %>% summarise(b_u=mean(rating-mu))
 user_bias_model <- mu + edx_test %>% left_join(user_avgs, by='userId') %>% pull(b_u)
 (user_bias_rmse <- RMSE(edx_test$rating, user_bias_model))
@@ -174,10 +186,14 @@ user_bias_model <- mu + edx_test %>% left_join(user_avgs, by='userId') %>% pull(
 movie_avgs <- edx_train %>% left_join(user_avgs, by='userId') %>% group_by(movieId) %>% summarise(b_i=mean(rating-mu-b_u))
 movie_user_bias_model <- edx_test %>% left_join(movie_avgs, by='movieId') %>% left_join(user_avgs, by='userId') %>%
   mutate(pred=mu+b_i+b_u) %>% pull(pred)
-(user_movie_bias_rmse <- RMSE(edx_test$rating, movie_user_bias_model))
+(movie_user_bias_rmse <- RMSE(edx_test$rating, movie_user_bias_model))
 ```
-Taking the best form of our biased model, we can introduce a regularization term, lambda, to combat over-fitting. In the context of the Netflix challenge, over-fitting could occur due to a rarely watched movie being incorrectly labeled as exceptionally good and '`leading to unhelpful recommendations. We will use cross-validation to search for the optimal lambda term.
+Taking the best form of our biased model, we can introduce a regularization term, lambda, to combat over-fitting. In the context of the Netflix challenge, over-fitting could occur due to a rarely watched movie being incorrectly labeled as exceptionally good and leading to unhelpful recommendations. We will use cross-validation to search for the optimal lambda term.
 ```{r, echo=FALSE}
+# This model builds on biased model by introducing a regularization (lambda) term 
+
+# Use cross-validation to search for best lambda term:
+#lambdas <- seq(0, 10, 0.25)
 lambdas <- seq(4, 5, 0.1)
 rmses <- sapply(lambdas, function(l){
   mu <- mean(edx_train$rating)
@@ -192,9 +208,14 @@ rmses <- sapply(lambdas, function(l){
   
   return(RMSE(predicted_ratings, edx_test$rating))
 })
+# visualize the search for best lambda
 qplot(lambdas, rmses)
+# save the best lambda term
 (lambda <- lambdas[which.min(rmses)])
+
+#Regularized movie bias term
 b_i <- edx_train %>% group_by(movieId) %>% summarise(b_i=sum(rating-mu)/(n()+lambda))
+#Regularized user bias term
 b_u <- edx_train %>% left_join(b_i, by='movieId') %>%
   group_by(userId) %>% summarise(b_u=sum(rating-b_i-mu)/(n()+lambda))
 
@@ -206,6 +227,7 @@ regularized_user_movie_model <- edx_test %>% left_join(b_i, by='movieId') %>%
 We will now try an alternate approach using matrix factorization. The idea behind this approach is that if we arrange the data into a matrix of users x movies, with the intersections representing an individual rating, then we can solve for the matrix of user-preferences and the matrix of movie characteristics, that when multiplied, give the completed matrix which we have just formed. Another way of explaining it is that we find similarities between movies and similarities between users. Then we can recommend movies that similar users liked, or we can recommend a movie that is similar to others that a user has liked.
 The Recosystem package was built specifically to handle this type of matrix factorization. Recosystem takes three vectors: one for the users, one for the movies, and one for the ratings. We will include 2 approaches one without tuning the model parameters, and one after tuning the parameters. In tuning the parameters, multiple values were experimented with, however this process took a significant amount of computational time, so only these two models are included here.
 ```{r, echo=FALSE}
+
 #This model will use matrix factorization without tuning parameters
 if(!require(recosystem)) install.packages("recosystem", repos = "http://cran.us.r-project.org")
 set.seed(69, sample.kind = 'Rounding')
@@ -254,7 +276,7 @@ rmses <- c(naive_rmse, movie_bias_rmse, user_movie_bias_rmse, movie_user_bias_rm
 ```
 #Results
 ###section that presents the modeling results and discusses the model performance
-We will now run our best performing model on the validation set
+We now have several models, and we will select the best performing one We will now run our best performing model on the validation set
 ```{r, echo=FALSE}
 
 ```

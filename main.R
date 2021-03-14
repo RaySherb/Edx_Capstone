@@ -60,10 +60,12 @@ rm(dl, ratings, movies, test_index, temp, movielens, removed)
 head(edx)
 
 # Converts timestamp to use-able date of review format
+if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
 library(lubridate)
 edx <- mutate(edx, date = as_datetime(timestamp))
 
 # Extracts release year
+if(!require(stringr)) install.packages("stringr", repos = "http://cran.us.r-project.org")
 library(stringr)
 pattern <- "\\(\\d{4}\\)"
 pattern2 <- "\\d{4}"
@@ -86,16 +88,24 @@ edx %>% group_by(rating) %>% summarise(n = n()) %>%
 edx %>% mutate(date=round_date(date, unit='week')) %>% group_by(date) %>%
   summarise(rating=mean(rating)) %>%
   ggplot(aes(x=date, y=rating)) + geom_point() + geom_smooth()
+
+
 # Genre vs rating count; as % (see which genre has most ratings)
+edx %>% group_by(genres) %>%summarise(n=n(), avg=mean(rating), se=sd(rating)/sqrt(n())) %>% mutate(genres=reorder(genres, avg)) %>% ggplot(aes(x = genres, y = avg, ymin = avg - 2*se, ymax = avg + 2*se)) + 
+  geom_point() +
+  geom_errorbar() + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
 # Genre count (see which genre has most movies)
+edx %>% group_by(genres) %>% summarise(n=n(), avg=mean(rating)) %>% arrange(desc(n))
 # Genre rating (see rating distributions of genres {barchart for 1star, 2star, 3.5star filled with %of movies from genre})
 
 
 # Movies by year of release
 # Rating by years after release, grouped by average rating (do good movies get higher ratings with nostalgia and shitty movies start higher because of trailers and hype?)
 
-
-
+# Number of movie ratings of movies released in each year
+edx %>% group_by(movieId) %>% summarise(n=n(), year=as.character(release)) %>% 
+  ggplot(aes(year, n)) + geom_boxplot()+ coord_trans(y = "sqrt") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
 
 
@@ -122,6 +132,7 @@ edx_train <- edx[-test_index,]
 # This ensures we don't test on movies/users we have never seen before
 edx_test <- edx_test %>% semi_join(edx_train, by='movieId') %>%
   semi_join(edx_train, by='userId')
+rm(test_index)
 
 # This model predicts the avg movie rating for all cases
 mu <- edx_train$rating %>% mean()
@@ -138,7 +149,25 @@ user_movie_bias_model <- edx_test %>% left_join(movie_avgs, by='movieId') %>% le
   mutate(pred=mu+b_i+b_u) %>% pull(pred)
 (user_movie_bias_rmse <- RMSE(edx_test$rating, user_movie_bias_model))
 
-# This model builds on previous by introducing a regularization (lambda) term 
+################################################
+# Reversed Bias
+###############################################
+# This model builds on mu by introducing a user bias term
+user_avgs <- edx_train %>% group_by(userId) %>% summarise(b_u=mean(rating-mu))
+user_bias_model <- mu + edx_test %>% left_join(user_avgs, by='userId') %>% pull(b_u)
+(user_bias_rmse <- RMSE(edx_test$rating, user_bias_model))
+
+# This model builds on previous by introducing a movie bias term
+movie_avgs <- edx_train %>% left_join(user_avgs, by='userId') %>% group_by(movieId) %>% summarise(b_i=mean(rating-mu-b_u))
+movie_user_bias_model <- edx_test %>% left_join(movie_avgs, by='movieId') %>% left_join(user_avgs, by='userId') %>%
+  mutate(pred=mu+b_i+b_u) %>% pull(pred)
+(movie_user_bias_rmse <- RMSE(edx_test$rating, movie_user_bias_model))
+
+################################################
+# Reversed Bias
+###############################################
+
+# This model builds on biased model by introducing a regularization (lambda) term 
 
 # Use cross-validation to search for best lambda term:
 #lambdas <- seq(0, 10, 0.25)
@@ -178,7 +207,6 @@ regularized_user_movie_model <- edx_test %>% left_join(b_i, by='movieId') %>%
 if(!require(recosystem)) install.packages("recosystem", repos = "http://cran.us.r-project.org")
 set.seed(69, sample.kind = 'Rounding')
 
-#inputs are stored in memory
 train_set <- with(edx_train, data_memory(user_index=userId, item_index=movieId, rating=rating))
 test_set <- with(edx_test, data_memory(user_index=userId, item_index=movieId, rating=rating))
 
@@ -217,8 +245,8 @@ matrix_factor_tuned <- r$predict(test_set, out_memory())
 
 
 # Evaluate the different models
-methods <- c('Just the average', '+ movie bias', '+ user bias', 'regularized model', 'matrix factorization', 'matrix factorization (Tuned)')
-rmses <- c(naive_rmse, movie_bias_rmse, user_movie_bias_rmse, regularized_user_movie_rmse, matrix_factor_rmse, matrix_factor_tuned_rmse)
+methods <- c('Just the average', '+ movie bias', '+ user bias', 'reversed_biases', 'regularized model', 'matrix factorization', 'matrix factorization (Tuned)')
+rmses <- c(naive_rmse, movie_bias_rmse, user_movie_bias_rmse, movie_user_bias_rmse, regularized_user_movie_rmse, matrix_factor_rmse, matrix_factor_tuned_rmse)
 (model_evaluations <- tibble(method=methods, RMSE=rmses))
 
 ##########################################################
