@@ -2,7 +2,9 @@
 title: "Movie Recommendation System"
 author: "Ray Sherbourne"
 date: "March 13, 2021"
-output: pdf
+output:
+  word_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -153,7 +155,7 @@ edx_train <- edx[-test_index,]
 # This ensures we don't test on movies/users we have never seen before
 edx_test <- edx_test %>% semi_join(edx_train, by='movieId') %>%
   semi_join(edx_train, by='userId')
-rm(test_index)s
+rm(test_index)
 ```
 We will use the simplest approach as a benchmark and iteratively improve upon it. Therefore, our first model will predict the average movie rating for all movies. 
 ```{r, echo=FALSE}
