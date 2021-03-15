@@ -36,7 +36,7 @@ The key steps that are to be performed are:
 
 The data was downloaded from the grouplens website and 10% was immediately set aside as the validation set. 
 
-```{r, echo=FALSE}
+```{r, include =FALSE}
 ##########################################################
 # Create edx set, validation set (final hold-out test set)
 ##########################################################
@@ -99,14 +99,14 @@ rm(dl, ratings, movies, test_index, temp, movielens, removed)
 
 Looking at the test set, there appears to be two useful data munging operations we can do immediately:
 * The timestamp predictor appears as a common format of seconds since midnight (UTC) January 1st, 1970. Although this is a common format, it is un-intuitive to work with so this is converted to a date time format. 
-```{r, echo=FALSE}
+```{r, include=FALSE}
 # Converts timestamp to use-able date of review format
 if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
 library(lubridate)
 edx <- mutate(edx, date = as_datetime(timestamp))
 ```
 * The release year may have some value to our exploration so it is extracted from the movie title.
-```{r, echo=FALSE}
+```{r, include=FALSE}
 # Extracts release year
 if(!require(stringr)) install.packages("stringr", repos = "http://cran.us.r-project.org")
 library(stringr)
@@ -118,7 +118,7 @@ edx <- edx %>% mutate(release=as.numeric(str_extract(edx$release, pattern2)))
 
 Let's now visualize each of our predictors, to see if there are any apparent patterns or a hypothesis that  merit further investigation.
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, message=FALSE}
 # User ratings
 edx %>% group_by(userId) %>% summarise(n = n()) %>% 
   ggplot(aes(n)) + geom_histogram() + scale_x_continuous(trans='log10')
@@ -141,7 +141,7 @@ edx %>% mutate(date=round_date(date, unit='week')) %>% group_by(date) %>%
 
 
 Before we start building our first model, we need to split the data into a training and test set. (Reminder that the validation set replicates data that we don't have yet)
-```{r, echo=FALSE}
+```{r, echo=FALSE, warning=FALSE}
 ##########################################################
 # Model Building / Select Machine Learning Algorithm
 ##########################################################
@@ -164,14 +164,14 @@ mu <- edx_train$rating %>% mean()
 (naive_rmse <- RMSE(edx_test$rating, mu))
 ```
 To account for the fact that movies are not received by audiences equally, we can introducing a bias term. This first bias term will represent how a particular movie deviates from the average of all movies.
-```{r, echo=FALSE}
+```{r, echo=FALSE, message=FALSE}
 # This model builds on previous by introducing a movie bias term
 movie_avgs <- edx_train %>% group_by(movieId) %>% summarise(b_i=mean(rating-mu))
 movie_bias_model <- mu + edx_test %>% left_join(movie_avgs, by='movieId') %>% pull(b_i)
 (movie_bias_rmse <- RMSE(edx_test$rating, movie_bias_model))
 ```
 Likewise, different users have different movie critiquing tendencies. We can introduce a bias term for users that will represent how a particular user deviates from the average user in rating movies.
-```{r, echo=FALSE}
+```{r, echo=FALSE, message=FALSE}
 # This model builds on previous by introducing a user bias term
 user_avgs <- edx_train %>% left_join(movie_avgs, by='movieId') %>% group_by(userId) %>% summarise(b_u=mean(rating-mu-b_i))
 user_movie_bias_model <- edx_test %>% left_join(movie_avgs, by='movieId') %>% left_join(user_avgs, by='userId') %>%
@@ -179,7 +179,7 @@ user_movie_bias_model <- edx_test %>% left_join(movie_avgs, by='movieId') %>% le
 (user_movie_bias_rmse <- RMSE(edx_test$rating, user_movie_bias_model))
 ```
 Now, let's see how the results would change if we reversed the order of the calculation of our bias terms.
-```{r, echo=FALSE}
+```{r, echo=FALSE, message=FALSE}
 user_avgs <- edx_train %>% group_by(userId) %>% summarise(b_u=mean(rating-mu))
 user_bias_model <- mu + edx_test %>% left_join(user_avgs, by='userId') %>% pull(b_u)
 (user_bias_rmse <- RMSE(edx_test$rating, user_bias_model))
@@ -191,7 +191,7 @@ movie_user_bias_model <- edx_test %>% left_join(movie_avgs, by='movieId') %>% le
 (movie_user_bias_rmse <- RMSE(edx_test$rating, movie_user_bias_model))
 ```
 Taking the best form of our biased model, we can introduce a regularization term, lambda, to combat over-fitting. In the context of the Netflix challenge, over-fitting could occur due to a rarely watched movie being incorrectly labeled as exceptionally good and leading to unhelpful recommendations. We will use cross-validation to search for the optimal lambda term.
-```{r, echo=FALSE}
+```{r, echo=FALSE, message=FALSE}
 # This model builds on biased model by introducing a regularization (lambda) term 
 
 # Use cross-validation to search for best lambda term:
@@ -228,7 +228,7 @@ regularized_user_movie_model <- edx_test %>% left_join(b_i, by='movieId') %>%
 ```
 We will now try an alternate approach using matrix factorization. The idea behind this approach is that if we arrange the data into a matrix of users x movies, with the intersections representing an individual rating, then we can solve for the matrix of user-preferences and the matrix of movie characteristics, that when multiplied, give the completed matrix which we have just formed. Another way of explaining it is that we find similarities between movies and similarities between users. Then we can recommend movies that similar users liked, or we can recommend a movie that is similar to others that a user has liked.
 The Recosystem package was built specifically to handle this type of matrix factorization. Recosystem takes three vectors: one for the users, one for the movies, and one for the ratings. We will include 2 approaches one without tuning the model parameters, and one after tuning the parameters. In tuning the parameters, multiple values were experimented with, however this process took a significant amount of computational time, so only these two models are included here.
-```{r, echo=FALSE}
+```{r, echo=FALSE, message=FALSE}
 
 #This model will use matrix factorization without tuning parameters
 if(!require(recosystem)) install.packages("recosystem", repos = "http://cran.us.r-project.org")
