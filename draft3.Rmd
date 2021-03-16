@@ -1,7 +1,7 @@
 ---
 title: "Movie Recommendation System"
 author: "Ray Sherbourne"
-date: "March 13, 2021"
+date: "March 15, 2021"
 output:
   word_document: default
   pdf_document: default
@@ -11,12 +11,11 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-#Project Overview
-###section that describes the dataset and summarizes the goal of the project and key steps that were performed
+# Project Overview
 
-The goal of this project is to solve a popular data science problem known as **The Netflix Challenge**. A dataset of movies and user ratings is provided that will serve as the foundation to build a recommendation system. A validation set is extracted from the data to simulate a true unknown sample and to serve as a final validation test set. The accuracy, as measured against the validation set, is specified as the root mean squared error (RMSE), with a target of 0.86499 or better.
+In 2006, Netflix started an open competion to build a model that would predict user ratings for movies using only past ratings as the only predictors. This competition has become a popular machine learning challenge in the data science community. This report will provide one solution to a modified form of this problem, known as **The Netflix Challenge**, using a dataset provided by grouplens.org. The accuracy of the models presented will be measured with the root mean squared error (RMSE), with a target of 0.8775 or lower.
 
-The key steps that are to be performed are:
+The key steps to be performed are:
 1. Import data
   + Download data from source
   + Extract validation set
@@ -31,10 +30,9 @@ The key steps that are to be performed are:
 5. Train with best performing model and test on validation set
 6. Reflect on the results
 
-#Method
-###section that explains the process and techniques used, including data cleaning, data exploration and visualization, insights gained, and your modeling approach
+# Method
 
-The data was downloaded from the grouplens website and 10% was immediately set aside as the validation set. 
+The data was downloaded as a zip file from the grouplens website. Two files (movies.dat & ratings.dat) were extracted and joined together by movieId into a dataframe containing columns for userId, movieId, rating, timestamp, title, and genres. With the data collection complete, 10% was immediately set aside as the validation set. 
 
 ```{r, include =FALSE}
 ##########################################################
@@ -96,8 +94,7 @@ rm(dl, ratings, movies, test_index, temp, movielens, removed)
 
 ```
 
-
-Looking at the test set, there appears to be two useful data munging operations we can do immediately:
+Two final data munging operations are done on the training set before data exploration:
 * The timestamp predictor appears as a common format of seconds since midnight (UTC) January 1st, 1970. Although this is a common format, it is un-intuitive to work with so this is converted to a date time format. 
 ```{r, include=FALSE}
 # Converts timestamp to use-able date of review format
@@ -116,18 +113,33 @@ edx <- mutate(edx, release=str_extract(edx$title, pattern))#%>%
 edx <- edx %>% mutate(release=as.numeric(str_extract(edx$release, pattern2)))
 ```
 
-Let's now visualize each of our predictors, to see if there are any apparent patterns or a hypothesis that  merit further investigation.
+Visual summaries are often useful in conveying and understanding data. Simply plotting the predictors will serve as the primary method of data exploration. The following histogram shows the number of users that rate a given amount of movies. 
 
 ```{r, echo=FALSE, message=FALSE}
 # User ratings
 edx %>% group_by(userId) %>% summarise(n = n()) %>% 
   ggplot(aes(n)) + geom_histogram() + scale_x_continuous(trans='log10')
+```
+
+The next histogram shows the number of movies that have a given amount of reviews. There are a significant amount of movies that have been rated less than 10 times. This could potentially be a source of error that may need to be solved with regularization.
+
+```{r, echo=FALSE, message=FALSE}
 # Movie ratings
 edx %>% group_by(movieId) %>% summarise(n = n()) %>% 
   ggplot(aes(n)) + geom_histogram() + scale_x_continuous(trans='log10')
+```
+
+The next plot is a line graph showing the frequency of each possible rating. Whole number ratings are much more common.
+
+```{r, echo=FALSE, message=FALSE}
 # Ratings
 edx %>% group_by(rating) %>% summarise(n = n()) %>%  
   ggplot(aes(x=rating, y=n)) + geom_line()
+```
+
+The next plot shows the mean rating for all movies based on the week the review was given. This shows that time-series analysis may have some predictive power, but it is relatively small.
+
+```{r, echo=FALSE, message=FALSE}
 # Timestamp
 edx %>% mutate(date=round_date(date, unit='week')) %>% group_by(date) %>%
   summarise(rating=mean(rating)) %>%
@@ -138,9 +150,7 @@ edx %>% mutate(date=round_date(date, unit='week')) %>% group_by(date) %>%
 
 
 
-
-
-Before we start building our first model, we need to split the data into a training and test set. (Reminder that the validation set replicates data that we don't have yet)
+After splitting the data into a training and test set (Reminder that the validation set remains untouched), the process of building/testing models begins. For this approach, instead of starting with a complex model, a simple model will be built and itteratively improved, while serving as a benchmark to gauge progress.
 ```{r, echo=FALSE, warning=FALSE}
 ##########################################################
 # Model Building / Select Machine Learning Algorithm
@@ -157,13 +167,13 @@ edx_test <- edx_test %>% semi_join(edx_train, by='movieId') %>%
   semi_join(edx_train, by='userId')
 rm(test_index)
 ```
-We will use the simplest approach as a benchmark and iteratively improve upon it. Therefore, our first model will predict the average movie rating for all movies. 
+The first model will simply predict the average movie rating for all cases:
 ```{r, echo=FALSE}
 # This model predicts the avg movie rating for all cases
 mu <- edx_train$rating %>% mean()
 (naive_rmse <- RMSE(edx_test$rating, mu))
 ```
-To account for the fact that movies are not received by audiences equally, we can introducing a bias term. This first bias term will represent how a particular movie deviates from the average of all movies.
+To improve this model, it is possible to account for the fact that movies are not received by audiences equally by introducing a bias term. The bias term is calculated by taking the average of the difference between the individual ratings of a movie and the average of all movie ratings. This will represent how a particular movie deviates from the average movie, and will be added onto our previous model. 
 ```{r, echo=FALSE, message=FALSE}
 # This model builds on previous by introducing a movie bias term
 movie_avgs <- edx_train %>% group_by(movieId) %>% summarise(b_i=mean(rating-mu))
@@ -228,7 +238,7 @@ regularized_user_movie_model <- edx_test %>% left_join(b_i, by='movieId') %>%
 ```
 We will now try an alternate approach using matrix factorization. The idea behind this approach is that if we arrange the data into a matrix of users x movies, with the intersections representing an individual rating, then we can solve for the matrix of user-preferences and the matrix of movie characteristics, that when multiplied, give the completed matrix which we have just formed. Another way of explaining it is that we find similarities between movies and similarities between users. Then we can recommend movies that similar users liked, or we can recommend a movie that is similar to others that a user has liked.
 The Recosystem package was built specifically to handle this type of matrix factorization. Recosystem takes three vectors: one for the users, one for the movies, and one for the ratings. We will include 2 approaches one without tuning the model parameters, and one after tuning the parameters. In tuning the parameters, multiple values were experimented with, however this process took a significant amount of computational time, so only these two models are included here.
-```{r, echo=FALSE, message=FALSE}
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
 
 #This model will use matrix factorization without tuning parameters
 if(!require(recosystem)) install.packages("recosystem", repos = "http://cran.us.r-project.org")
