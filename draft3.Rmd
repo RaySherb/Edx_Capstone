@@ -171,36 +171,62 @@ The first model will simply predict the average movie rating for all cases:
 ```{r, echo=FALSE}
 # This model predicts the avg movie rating for all cases
 mu <- edx_train$rating %>% mean()
-(naive_rmse <- RMSE(edx_test$rating, mu))
+naive_rmse <- RMSE(edx_test$rating, mu)
 ```
-To improve this model, it is possible to account for the fact that movies are not received by audiences equally by introducing a bias term. The bias term is calculated by taking the average of the difference between the individual ratings of a movie and the average of all movie ratings. This will represent how a particular movie deviates from the average movie, and will be added onto our previous model. 
+
+Model                                     |    RMSE
+------------------------------------------|-------------
+Average                                   | `naive_rmse`
+
+
+To improve this model, it is possible to account for the fact that movies are not received by audiences equally. A bias term is calculated by taking the average of the difference between the individual ratings of a movie and the average of all movie ratings. This will represent how a particular movie deviates from the average movie, and will be added onto our previous model: 
 ```{r, echo=FALSE, message=FALSE}
 # This model builds on previous by introducing a movie bias term
 movie_avgs <- edx_train %>% group_by(movieId) %>% summarise(b_i=mean(rating-mu))
 movie_bias_model <- mu + edx_test %>% left_join(movie_avgs, by='movieId') %>% pull(b_i)
-(movie_bias_rmse <- RMSE(edx_test$rating, movie_bias_model))
+movie_bias_rmse <- RMSE(edx_test$rating, movie_bias_model)
 ```
-Likewise, different users have different movie critiquing tendencies. We can introduce a bias term for users that will represent how a particular user deviates from the average user in rating movies.
+Model                                     |    RMSE
+------------------------------------------|-------------
+Average                                   | `naive_rmse`
+Avg + Movie Bias                          | `movie_bias_rmse`
+
+
+Likewise, different users have different movie critiquing tendencies. A bias term for users, is calculated by taking the average of each users rating after subtracting the average movie rating and movie bias term. The user bias term will account for how a particular movie deviates from the average movie for a particular user. Again this term is added onto the previous model:
 ```{r, echo=FALSE, message=FALSE}
 # This model builds on previous by introducing a user bias term
 user_avgs <- edx_train %>% left_join(movie_avgs, by='movieId') %>% group_by(userId) %>% summarise(b_u=mean(rating-mu-b_i))
 user_movie_bias_model <- edx_test %>% left_join(movie_avgs, by='movieId') %>% left_join(user_avgs, by='userId') %>%
   mutate(pred=mu+b_i+b_u) %>% pull(pred)
-(user_movie_bias_rmse <- RMSE(edx_test$rating, user_movie_bias_model))
+user_movie_bias_rmse <- RMSE(edx_test$rating, user_movie_bias_model)
 ```
-Now, let's see how the results would change if we reversed the order of the calculation of our bias terms.
+Model                                     |    RMSE
+------------------------------------------|-------------
+Average                                   | `naive_rmse`
+Avg + Movie Bias                          | `movie_bias_rmse`
+Avg + Movie Bias + User Bias              | `user_movie_bias_rmse`
+
+The formula for the second bias term included the first bias term, so a quick check is done to see the results of switching the order of calculation:
 ```{r, echo=FALSE, message=FALSE}
 user_avgs <- edx_train %>% group_by(userId) %>% summarise(b_u=mean(rating-mu))
 user_bias_model <- mu + edx_test %>% left_join(user_avgs, by='userId') %>% pull(b_u)
-(user_bias_rmse <- RMSE(edx_test$rating, user_bias_model))
+user_bias_rmse <- RMSE(edx_test$rating, user_bias_model)
 
 # This model builds on previous by introducing a movie bias term
 movie_avgs <- edx_train %>% left_join(user_avgs, by='userId') %>% group_by(movieId) %>% summarise(b_i=mean(rating-mu-b_u))
 movie_user_bias_model <- edx_test %>% left_join(movie_avgs, by='movieId') %>% left_join(user_avgs, by='userId') %>%
   mutate(pred=mu+b_i+b_u) %>% pull(pred)
-(movie_user_bias_rmse <- RMSE(edx_test$rating, movie_user_bias_model))
+movie_user_bias_rmse <- RMSE(edx_test$rating, movie_user_bias_model)
 ```
-Taking the best form of our biased model, we can introduce a regularization term, lambda, to combat over-fitting. In the context of the Netflix challenge, over-fitting could occur due to a rarely watched movie being incorrectly labeled as exceptionally good and leading to unhelpful recommendations. We will use cross-validation to search for the optimal lambda term.
+Model                                     |    RMSE
+------------------------------------------|-------------
+Average                                   | `naive_rmse`
+Avg + Movie Bias                          | `movie_bias_rmse`
+Avg + Movie Bias + User Bias              | `user_movie_bias_rmse`
+Avg + User Bias                           | `user_bias_rmse`
+Avg + User Bias + Movie Bias              | `movie_user_bias_rmse`
+
+The best form of the model above will be itterated further by adding a regularization term, lambda, to combat over-fitting. In the context of The Netflix Challenge, over-fitting could occur due to a rarely watched movie being incorrectly labeled as exceptionally good and leading to unhelpful recommendations. Cross-validation is used to search for the optimal lambda term.
 ```{r, echo=FALSE, message=FALSE}
 # This model builds on biased model by introducing a regularization (lambda) term 
 
@@ -233,11 +259,19 @@ b_u <- edx_train %>% left_join(b_i, by='movieId') %>%
 
 regularized_user_movie_model <- edx_test %>% left_join(b_i, by='movieId') %>%
   left_join(b_u, by='userId') %>% mutate(pred=mu+b_i+b_u) %>% pull(pred)
-(regularized_user_movie_rmse <- RMSE(edx_test$rating, regularized_user_movie_model))
+regularized_user_movie_rmse <- RMSE(edx_test$rating, regularized_user_movie_model)
 
 ```
-We will now try an alternate approach using matrix factorization. The idea behind this approach is that if we arrange the data into a matrix of users x movies, with the intersections representing an individual rating, then we can solve for the matrix of user-preferences and the matrix of movie characteristics, that when multiplied, give the completed matrix which we have just formed. Another way of explaining it is that we find similarities between movies and similarities between users. Then we can recommend movies that similar users liked, or we can recommend a movie that is similar to others that a user has liked.
-The Recosystem package was built specifically to handle this type of matrix factorization. Recosystem takes three vectors: one for the users, one for the movies, and one for the ratings. We will include 2 approaches one without tuning the model parameters, and one after tuning the parameters. In tuning the parameters, multiple values were experimented with, however this process took a significant amount of computational time, so only these two models are included here.
+Model                                     |    RMSE
+------------------------------------------|-------------
+Average                                   | `naive_rmse`
+Avg + Movie Bias                          | `movie_bias_rmse`
+Avg + Movie Bias + User Bias              | `user_movie_bias_rmse`
+Avg + User Bias + Movie Bias              | `movie_user_bias_rmse`
+Avg + Movie Bias + User Bias + Lambda     | `regularized_user_movie_rmse`
+
+This model passes the accuracy goal for this project, however there is an alternate approach using matrix factorization. The idea behind this approach is that if the data is arranged into a matrix of users x movies, with the intersections representing an individual rating, then factorization would results in a matrix of user-preferences and the matrix of movie characteristics. It would be possible to group similar users and group similar movies, and then make recommendations based on these groups.
+The Recosystem package was built specifically to handle this type of matrix factorization. Recosystem takes three vectors: one for the users, one for the movies, and one for the ratings. This report includes two approaches: one without tuning the model parameters, and one after tuning the parameters. In tuning the parameters, multiple values were experimented with, however this process took a significant amount of computational time, so only these two models are included here.
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 
 #This model will use matrix factorization without tuning parameters
@@ -280,12 +314,18 @@ matrix_factor_tuned <- r$predict(test_set, out_memory())
 
 ```
 
-```{r, echo=FALSE}
-# Evaluate the different models
-methods <- c('Just the average', '+ movie bias', '+ user bias', 'reversed_biases', 'regularized model', 'matrix factorization', 'matrix factorization (Tuned)')
-rmses <- c(naive_rmse, movie_bias_rmse, user_movie_bias_rmse, movie_user_bias_rmse, regularized_user_movie_rmse, matrix_factor_rmse, matrix_factor_tuned_rmse)
-(model_evaluations <- tibble(method=methods, RMSE=rmses))
-```
+Model                                     |    RMSE
+------------------------------------------|-------------
+Average                                   | `naive_rmse`
+Avg + Movie Bias                          | `movie_bias_rmse`
+Avg + Movie Bias + User Bias              | `user_movie_bias_rmse`
+Avg + User Bias + Movie Bias              | `movie_user_bias_rmse`
+Avg + Movie Bias + User Bias + Lambda     | `regularized_user_movie_rmse`
+Matrix Factorization (Untuned)            | `matrix_factor_rmse`
+Matrix Factorization (Tuned)              | `matrix_factor_tuned_rmse`
+
+
+
 #Results
 ###section that presents the modeling results and discusses the model performance
 We now have several models, and we will select the best performing one We will now run our best performing model on the validation set
