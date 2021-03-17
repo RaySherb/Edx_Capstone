@@ -174,9 +174,6 @@ mu <- edx_train$rating %>% mean()
 naive_rmse <- RMSE(edx_test$rating, mu)
 ```
 
-Model                                     |    RMSE
-------------------------------------------|-------------
-Average                                   | `naive_rmse`
 
 
 To improve this model, it is possible to account for the fact that movies are not received by audiences equally. A bias term is calculated by taking the average of the difference between the individual ratings of a movie and the average of all movie ratings. This will represent how a particular movie deviates from the average movie, and will be added onto our previous model: 
@@ -186,10 +183,7 @@ movie_avgs <- edx_train %>% group_by(movieId) %>% summarise(b_i=mean(rating-mu))
 movie_bias_model <- mu + edx_test %>% left_join(movie_avgs, by='movieId') %>% pull(b_i)
 movie_bias_rmse <- RMSE(edx_test$rating, movie_bias_model)
 ```
-Model                                     |    RMSE
-------------------------------------------|-------------
-Average                                   | `naive_rmse`
-Avg + Movie Bias                          | `movie_bias_rmse`
+
 
 
 Likewise, different users have different movie critiquing tendencies. A bias term for users, is calculated by taking the average of each users rating after subtracting the average movie rating and movie bias term. The user bias term will account for how a particular movie deviates from the average movie for a particular user. Again this term is added onto the previous model:
@@ -200,11 +194,7 @@ user_movie_bias_model <- edx_test %>% left_join(movie_avgs, by='movieId') %>% le
   mutate(pred=mu+b_i+b_u) %>% pull(pred)
 user_movie_bias_rmse <- RMSE(edx_test$rating, user_movie_bias_model)
 ```
-Model                                     |    RMSE
-------------------------------------------|-------------
-Average                                   | `naive_rmse`
-Avg + Movie Bias                          | `movie_bias_rmse`
-Avg + Movie Bias + User Bias              | `user_movie_bias_rmse`
+
 
 The formula for the second bias term included the first bias term, so a quick check is done to see the results of switching the order of calculation:
 ```{r, echo=FALSE, message=FALSE}
@@ -218,13 +208,7 @@ movie_user_bias_model <- edx_test %>% left_join(movie_avgs, by='movieId') %>% le
   mutate(pred=mu+b_i+b_u) %>% pull(pred)
 movie_user_bias_rmse <- RMSE(edx_test$rating, movie_user_bias_model)
 ```
-Model                                     |    RMSE
-------------------------------------------|-------------
-Average                                   | `naive_rmse`
-Avg + Movie Bias                          | `movie_bias_rmse`
-Avg + Movie Bias + User Bias              | `user_movie_bias_rmse`
-Avg + User Bias                           | `user_bias_rmse`
-Avg + User Bias + Movie Bias              | `movie_user_bias_rmse`
+
 
 The best form of the model above will be itterated further by adding a regularization term, lambda, to combat over-fitting. In the context of The Netflix Challenge, over-fitting could occur due to a rarely watched movie being incorrectly labeled as exceptionally good and leading to unhelpful recommendations. Cross-validation is used to search for the optimal lambda term.
 ```{r, echo=FALSE, message=FALSE}
@@ -262,13 +246,7 @@ regularized_user_movie_model <- edx_test %>% left_join(b_i, by='movieId') %>%
 regularized_user_movie_rmse <- RMSE(edx_test$rating, regularized_user_movie_model)
 
 ```
-Model                                     |    RMSE
-------------------------------------------|-------------
-Average                                   | `naive_rmse`
-Avg + Movie Bias                          | `movie_bias_rmse`
-Avg + Movie Bias + User Bias              | `user_movie_bias_rmse`
-Avg + User Bias + Movie Bias              | `movie_user_bias_rmse`
-Avg + Movie Bias + User Bias + Lambda     | `regularized_user_movie_rmse`
+
 
 This model passes the accuracy goal for this project, however there is an alternate approach using matrix factorization. The idea behind this approach is that if the data is arranged into a matrix of users x movies, with the intersections representing an individual rating, then factorization would results in a matrix of user-preferences and the matrix of movie characteristics. It would be possible to group similar users and group similar movies, and then make recommendations based on these groups.
 The Recosystem package was built specifically to handle this type of matrix factorization. Recosystem takes three vectors: one for the users, one for the movies, and one for the ratings. This report includes two approaches: one without tuning the model parameters, and one after tuning the parameters. In tuning the parameters, multiple values were experimented with, however this process took a significant amount of computational time, so only these two models are included here.
@@ -314,26 +292,21 @@ matrix_factor_tuned <- r$predict(test_set, out_memory())
 
 ```
 
-Model                                     |    RMSE
-------------------------------------------|-------------
-Average                                   | `naive_rmse`
-Avg + Movie Bias                          | `movie_bias_rmse`
-Avg + Movie Bias + User Bias              | `user_movie_bias_rmse`
-Avg + User Bias + Movie Bias              | `movie_user_bias_rmse`
-Avg + Movie Bias + User Bias + Lambda     | `regularized_user_movie_rmse`
-Matrix Factorization (Untuned)            | `matrix_factor_rmse`
-Matrix Factorization (Tuned)              | `matrix_factor_tuned_rmse`
+This method of matrix factorization gives the best result. Even without tuning the parameters, it beats the other models. 
 
+# Results
+### section that presents the modeling results and discusses the model performance
 
+The best performing model is selected to use on the validation set. It is trained with the full edx data set and the rmse of the predictions is calculated below:
 
-#Results
-###section that presents the modeling results and discusses the model performance
-We now have several models, and we will select the best performing one We will now run our best performing model on the validation set
-```{r, echo=FALSE}
-
+```{r}
 ```
 
 
 
-#Conclusion
+# Conclusion
 ###section that gives a brief summary of the report, its limitations and future work
+
+In practice the recommendation system would only recommend movies that are predicted to be above the users average rating. This validation set replicates how future users would rate movies, both the movies that were recommended and movies that were not recommended (due to a low score).
+
+As the data set is constantly growing, and the algorithm is being tested in the wild, it is realistic to check the rmse of the model post-implementation. A data pipeline of importing the newest results and adding them to the existing model would also be important. Verifying that the updating rmse is behaving as expected is an easy way of making sure the model has not broken down. 
