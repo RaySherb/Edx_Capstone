@@ -72,6 +72,27 @@ pattern2 <- "\\d{4}"
 edx <- mutate(edx, release=str_extract(edx$title, pattern))#%>%
 edx <- edx %>% mutate(release=as.numeric(str_extract(edx$release, pattern2)))
 
+# Creates binary predictor for each genre
+edx <- edx %>% mutate(Action = ifelse(str_detect(.$genres, 'Action'), 1, 0),
+                      Adventure = ifelse(str_detect(.$genres, 'Adventure'), 1, 0),
+                      Animation = ifelse(str_detect(.$genres, 'Animation'), 1, 0),
+                      Children = ifelse(str_detect(.$genres, 'Children'), 1, 0),
+                      Comedy = ifelse(str_detect(.$genres, 'Comedy'), 1, 0),
+                      Crime = ifelse(str_detect(.$genres, 'Crime'), 1, 0),
+                      Docu = ifelse(str_detect(.$genres, 'Documentary'), 1, 0),
+                      Drama = ifelse(str_detect(.$genres, 'Drama'), 1, 0),
+                      Fantasy = ifelse(str_detect(.$genres, 'Fantasy'), 1, 0),
+                      Noir = ifelse(str_detect(.$genres, 'Noir'), 1, 0),
+                      Horror = ifelse(str_detect(.$genres, 'Horror'), 1, 0),
+                      Musical = ifelse(str_detect(.$genres, 'Musical'), 1, 0),
+                      Mystery = ifelse(str_detect(.$genres, 'Mystery'), 1, 0),
+                      Romance = ifelse(str_detect(.$genres, 'Romance'), 1, 0),
+                      SciFi = ifelse(str_detect(.$genres, 'Sci'), 1, 0),
+                      Thriller = ifelse(str_detect(.$genres, 'Thriller'), 1, 0),
+                      War = ifelse(str_detect(.$genres, 'War'), 1, 0),
+                      Western = ifelse(str_detect(.$genres, 'Western'), 1, 0))
+(genre_count <-edx %>% distinct(edx$movieId, .keep_all = TRUE) %>% select(9:26) %>% 
+  colSums()) %>% barplot(las=2, main = 'Movie Genres', ylab = 'Count')
 # Visualize the predictors
 
 # User ratings
@@ -91,6 +112,8 @@ edx %>% mutate(date=round_date(date, unit='week')) %>% group_by(date) %>%
   summarise(rating=mean(rating)) %>%
   ggplot(aes(x=date, y=rating)) + geom_point() + geom_smooth()+
   ggtitle('Average Rating per week') + ylab('Rating')
+# Genres
+(edx %>% group_by(movieId) %>% pull() %>% colSums(edx[,9:26]))
 
 # Christmas movies (proof that holiday movie discrimination is pointless)
 christmas_pattern <- "Christmas"
@@ -102,6 +125,8 @@ christmas_movies %>% ggplot(aes(x=month(date))) + geom_bar(stat = 'count') +
   scale_x_continuous(breaks=c(1:12)) +
   ggtitle("Reviews for Christmas Movies")+
   xlab('Month')
+
+
 
 ##########################################################
 # Model Building / Select Machine Learning Algorithm
