@@ -174,7 +174,13 @@ edx %>% mutate(date=round_date(date, unit='week')) %>% group_by(date) %>%
   ggtitle('Average Rating per week') + ylab('Rating')
 ```
 
-To follow up on the previous idea of using time as a predictor. A check is done using movies containing the word 'Christmas' to see if holiday themed movies should be recommended more around that holiday.
+The following bar chart shows the number frequency of movie genres. Drama and Comedy stand out as the biggest genres. 
+```{r, echo=FALSE}
+(genre_count <-edx %>% distinct(edx$movieId, .keep_all = TRUE) %>% select(9:26) %>% 
+    colSums()) %>% barplot(las=2, main = 'Movie Genres', ylab = 'Count')
+```
+
+To follow up on a previous idea of using time as a predictor. A check is done using movies containing the word 'Christmas' to see if holiday themed movies should be recommended more around that holiday.
 
 ```{r, echo=FALSE, message=FALSE}
 # Christmas movies (proof that holiday movie discrimination is pointless)
@@ -263,7 +269,7 @@ rmses <- c(naive_rmse, movie_bias_rmse, user_movie_bias_rmse, movie_user_bias_rm
 (model_evaluations <- tibble(method=methods, RMSE=rmses))
 ```
 
-The best form of the model above will be itterated further by adding a regularization term, lambda, to combat over-fitting. In the context of The Netflix Challenge, over-fitting could occur due to a rarely watched movie being incorrectly labeled as exceptionally good and leading to unhelpful recommendations. Cross-validation is used to search for the optimal lambda term.
+The best form of the model above will be itterated further by adding a regularization term, lambda, to combat over-fitting. In the context of The Netflix Challenge, over-fitting could occur due to a rarely watched movie being incorrectly labeled as exceptionally good and leading to unhelpful recommendations. Cross-validation is used to search for the optimal lambda term. A plot of the lambda search is shown below:
 
 ```{r, echo=FALSE, message=FALSE}
 # This model builds on biased model by introducing a regularization (lambda) term 
@@ -287,7 +293,7 @@ rmses <- sapply(lambdas, function(l){
 # visualize the search for best lambda
 qplot(lambdas, rmses)
 # save the best lambda term
-(lambda <- lambdas[which.min(rmses)])
+lambda <- lambdas[which.min(rmses)]
 
 #Regularized movie bias term
 b_i <- edx_train %>% group_by(movieId) %>% summarise(b_i=sum(rating-mu)/(n()+lambda))
@@ -306,7 +312,7 @@ rmses <- c(naive_rmse, movie_bias_rmse, user_movie_bias_rmse, movie_user_bias_rm
 
 This model passes the accuracy goal for this project, however there is an alternate approach using matrix factorization. The idea behind this approach is that if the data is arranged into a matrix of users x movies, with the intersections representing an individual rating, then factorization would results in a matrix of user-preferences and a matrix of movie characteristics. It would be possible to group similar users and group similar movies, and then make recommendations based on these groups.
 The Recosystem package was built specifically to handle this type of matrix factorization. Recosystem takes three vectors: one for the users, one for the movies, and one for the ratings. This report includes two approaches: one without tuning the model parameters, and one after tuning the parameters. In tuning the parameters, multiple values were experimented with, however this process took a significant amount of computational time, so only these two models are included here.
-```{r, echo=FALSE, warning=FALSE, message=FALSE}
+```{r, include=FALSE}
 #This model will use matrix factorization without tuning parameters
 if(!require(recosystem)) install.packages("recosystem", repos = "http://cran.us.r-project.org")
 set.seed(69, sample.kind = 'Rounding')
@@ -344,7 +350,9 @@ r$train(train_set, opts=c(opts$min, nthread=1, niter=20))
 matrix_factor_tuned <- r$predict(test_set, out_memory())
 
 matrix_factor_tuned_rmse <- RMSE(matrix_factor_tuned, edx_test$rating)
+```
 
+```{r, echo=FALSE, message=FALSE}
 # Evaluate the different models
 methods <- c('Just the average', '+ movie bias', '+ user bias', 'reversed_biases', 'regularized model', 'matrix factorization', 'matrix factorization (Tuned)')
 rmses <- c(naive_rmse, movie_bias_rmse, user_movie_bias_rmse, movie_user_bias_rmse, regularized_user_movie_rmse, matrix_factor_rmse, matrix_factor_tuned_rmse)
@@ -358,7 +366,7 @@ This method of matrix factorization gives the best result. Even without tuning t
 
 The best performing model is selected to use on the validation set. It is trained with the full edx data set and the rmse of the predictions is calculated below:
 
-```{r, echo=FALSE, warning=FALSE, message=FALSE}
+```{r, include=FALSE}
 #This model will use matrix factorization without tuning parameters
 if(!require(recosystem)) install.packages("recosystem", repos = "http://cran.us.r-project.org")
 set.seed(69, sample.kind = 'Rounding')
@@ -380,7 +388,9 @@ r$train(train_set, opts=c(opts$min, nthread=1, niter=20))
 
 #predict
 final_prediction <- r$predict(test_set, out_memory())
+```
 
+```{r, echo=FALSE, message=FALSE}
 (final_rmse <- RMSE(final_prediction, validation$rating))
 ```
 

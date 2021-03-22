@@ -92,8 +92,7 @@ edx <- edx %>% mutate(Action = ifelse(str_detect(.$genres, 'Action'), 1, 0),
                       Thriller = ifelse(str_detect(.$genres, 'Thriller'), 1, 0),
                       War = ifelse(str_detect(.$genres, 'War'), 1, 0),
                       Western = ifelse(str_detect(.$genres, 'Western'), 1, 0))
-(genre_count <-edx %>% distinct(edx$movieId, .keep_all = TRUE) %>% select(9:26) %>% 
-  colSums()) %>% barplot(las=2, main = 'Movie Genres', ylab = 'Count')
+
 # Visualize the predictors
 
 # User ratings
@@ -114,7 +113,8 @@ edx %>% mutate(date=round_date(date, unit='week')) %>% group_by(date) %>%
   ggplot(aes(x=date, y=rating)) + geom_point() + geom_smooth()+
   ggtitle('Average Rating per week') + ylab('Rating')
 # Genres
-(edx %>% group_by(movieId) %>% pull() %>% colSums(edx[,9:26]))
+(genre_count <-edx %>% distinct(edx$movieId, .keep_all = TRUE) %>% select(9:26) %>% 
+    colSums()) %>% barplot(las=2, main = 'Movie Genres', ylab = 'Count')
 
 # Christmas movies (proof that holiday movie discrimination is pointless)
 christmas_pattern <- "Christmas"
