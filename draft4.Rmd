@@ -91,11 +91,13 @@ edx <- rbind(edx, removed)
 rm(dl, ratings, movies, test_index, temp, movielens, removed)
 ```
 
-From the website/readme file, the data is described as just over 10 million ratings from users who rated at least 20 movies each. Users are only represented by their a unique and anonymized id number. Ratings were made on a scale from 0.5 stars (worst) to 5 stars (best) in increments of 0.5. The timestamp variable represents seconds form midnight UTC of January 1, 1970. The genres variable contains a combinations of 18 possible genres. Looking at the first few lines of data, there are a few data munging operations that will help with further processing:
+From the website/readme file, the data is described as just over 10 million ratings from users who rated at least 20 movies each. Users are only represented by their a unique and anonymized id number. Ratings were made on a scale from 0.5 stars (worst) to 5 stars (best) in increments of 0.5. The timestamp variable represents seconds form midnight UTC of January 1, 1970. The genres variable contains a combinations of 18 possible genres. Below is a look at the first few lines of data:
 
 ```{r, echo=FALSE}
 head(edx)
 ```
+
+There are a few data munging operations that will help with further processing:
 
   * Converting the timestamp to a date time format
   * Extracting the release year from the title
@@ -174,7 +176,7 @@ edx %>% mutate(date=round_date(date, unit='week')) %>% group_by(date) %>%
   ggtitle('Average Rating per week') + ylab('Rating')
 ```
 
-The following bar chart shows the number frequency of movie genres. Drama and Comedy stand out as the biggest genres. 
+The following bar chart shows the number of movie genres. Drama and Comedy stand out as the biggest genres. 
 ```{r, echo=FALSE}
 (genre_count <-edx %>% distinct(edx$movieId, .keep_all = TRUE) %>% select(9:26) %>% 
     colSums()) %>% barplot(las=2, main = 'Movie Genres', ylab = 'Count')
@@ -391,7 +393,8 @@ final_prediction <- r$predict(test_set, out_memory())
 ```
 
 ```{r, echo=FALSE, message=FALSE}
-(final_rmse <- RMSE(final_prediction, validation$rating))
+final_rmse <- RMSE(final_prediction, validation$rating)
+cat('Final RMSE: ', final_rmse)
 ```
 
 
