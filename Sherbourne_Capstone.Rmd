@@ -1,0 +1,416 @@
+---
+title: "Movie Recommendation System"
+author: "Ray Sherbourne"
+date: "March 21, 2021"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Project Overview
+
+In 2006, Netflix started an open competition to build a machine learning model that would predict user ratings for movies using only past ratings as predictors. This report will provide one solution to a modified form of this problem, known as **The Netflix Prize**, using a data set provided by grouplens.org. The accuracies of the models presented will be measured against a validation set that is pulled from the original data set before any processing. Accuracy will be measured with the root mean squared error (RMSE), targeting a score of 0.8775 or lower. The key steps to be performed are:
+
+1. Get the data
+      * Download data from source
+      * Combine the data into a single file
+      * Extract the validation set
+2. Data wrangling (clean the data for ease of use)
+3. Exploratory analysis
+4. Model building
+      * Start with the mean as a baseline approach
+      * Account for movie bias
+      * Account for user bias
+      * Introduce a regularization term lambda
+      * Use matrix factorization (with and without optimizing parameters)
+5. Train with best performing model and test on validation set
+6. Reflect on the results
+
+
+# Method
+
+The data was downloaded as a zip file from the grouplens website. Two files (movies.dat & ratings.dat) were extracted and joined together into a dataframe containing columns for userId, movieId, rating, timestamp, title, and genres. With the data collection complete, 10% was immediately set aside as the validation set. 
+
+```{r, include =FALSE}
+##########################################################
+# Create edx set, validation set (final hold-out test set)
+##########################################################
+
+# Note: this process could take a couple of minutes
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+
+library(tidyverse)
+library(caret)
+library(data.table)
+
+# MovieLens 10M dataset:
+# https://grouplens.org/datasets/movielens/10m/
+# http://files.grouplens.org/datasets/movielens/ml-10m.zip
+
+dl <- tempfile()
+download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                 col.names = c("userId", "movieId", "rating", "timestamp"))
+
+movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+colnames(movies) <- c("movieId", "title", "genres")
+
+# if using R 3.6 or earlier:
+#movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(levels(movieId))[movieId],
+#title = as.character(title),
+#genres = as.character(genres))
+# if using R 4.0 or later:
+movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId),
+                                           title = as.character(title),
+                                           genres = as.character(genres))
+
+
+movielens <- left_join(ratings, movies, by = "movieId")
+
+# Validation set will be 10% of MovieLens data
+set.seed(1, sample.kind="Rounding") # if using R 3.5 or earlier, use `set.seed(1)`
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+temp <- movielens[test_index,]
+
+# Make sure userId and movieId in validation set are also in edx set
+validation <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+
+# Add rows removed from validation set back into edx set
+removed <- anti_join(temp, validation)
+edx <- rbind(edx, removed)
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+```
+
+From the website/readme file, the data is described as just over 10 million ratings from users who rated at least 20 movies each. Users are only represented by their a unique and anonymized id number. Ratings were made on a scale from 0.5 stars (worst) to 5 stars (best) in increments of 0.5. The timestamp variable represents seconds form midnight UTC of January 1, 1970. The genres variable contains a combinations of 18 possible genres. Below is a look at the first few lines of data:
+
+```{r, echo=FALSE}
+head(edx)
+```
+
+There are a few data munging operations that will help with further processing:
+
+  * Converting the timestamp to a date time format
+  * Extracting the release year from the title
+  * Pulling out the genres into their own separate binary columns
+  
+```{r, include=FALSE}
+# Converts timestamp to use-able date of review format
+if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
+library(lubridate)
+edx <- mutate(edx, date = as_datetime(timestamp))
+
+# Extracts release year
+if(!require(stringr)) install.packages("stringr", repos = "http://cran.us.r-project.org")
+library(stringr)
+pattern <- "\\(\\d{4}\\)"
+pattern2 <- "\\d{4}"
+edx <- mutate(edx, release=str_extract(edx$title, pattern))#%>%
+edx <- edx %>% mutate(release=as.numeric(str_extract(edx$release, pattern2)))
+
+# Creates binary predictor for each genre
+edx <- edx %>% mutate(Action = ifelse(str_detect(.$genres, 'Action'), 1, 0),
+                      Adventure = ifelse(str_detect(.$genres, 'Adventure'), 1, 0),
+                      Animation = ifelse(str_detect(.$genres, 'Animation'), 1, 0),
+                      Children = ifelse(str_detect(.$genres, 'Children'), 1, 0),
+                      Comedy = ifelse(str_detect(.$genres, 'Comedy'), 1, 0),
+                      Crime = ifelse(str_detect(.$genres, 'Crime'), 1, 0),
+                      Docu = ifelse(str_detect(.$genres, 'Documentary'), 1, 0),
+                      Drama = ifelse(str_detect(.$genres, 'Drama'), 1, 0),
+                      Fantasy = ifelse(str_detect(.$genres, 'Fantasy'), 1, 0),
+                      Noir = ifelse(str_detect(.$genres, 'Noir'), 1, 0),
+                      Horror = ifelse(str_detect(.$genres, 'Horror'), 1, 0),
+                      Musical = ifelse(str_detect(.$genres, 'Musical'), 1, 0),
+                      Mystery = ifelse(str_detect(.$genres, 'Mystery'), 1, 0),
+                      Romance = ifelse(str_detect(.$genres, 'Romance'), 1, 0),
+                      SciFi = ifelse(str_detect(.$genres, 'Sci'), 1, 0),
+                      Thriller = ifelse(str_detect(.$genres, 'Thriller'), 1, 0),
+                      War = ifelse(str_detect(.$genres, 'War'), 1, 0),
+                      Western = ifelse(str_detect(.$genres, 'Western'), 1, 0))
+(genre_count <-edx %>% distinct(edx$movieId, .keep_all = TRUE) %>% select(9:26) %>% 
+  colSums()) %>% barplot(las=2, main = 'Movie Genres', ylab = 'Count')
+```
+
+Visual summaries are often useful in both conveying and understanding data. A few simple plots will serve as the primary method of data exploration here. The following histogram shows the number of users that rate a given amount of movies. 
+```{r, echo=FALSE, message=FALSE}
+# User ratings
+edx %>% group_by(userId) %>% summarise(n = n()) %>% 
+  ggplot(aes(n)) + geom_histogram() + scale_x_continuous(trans='log10')+
+  ggtitle('Users')+ xlab('Number of Movie Ratings') + ylab('Number of Users')
+```
+
+The next histogram shows the number of movies that have a given amount of reviews. There are a significant amount of movies that have been rated less than 10 times. This could potentially be a source of error that may need to be solved with regularization.
+
+```{r, echo=FALSE, message=FALSE}
+# Movie ratings
+edx %>% group_by(movieId) %>% summarise(n = n()) %>% 
+  ggplot(aes(n)) + geom_histogram() + scale_x_continuous(trans='log10')+
+  ggtitle('Ratings')+xlab('Number of Movie Ratings')+ylab('Number of Movies')
+```
+
+The next plot is a line graph showing the frequency of each possible rating. It is obvious that whole number ratings are much more common.
+
+```{r, echo=FALSE, message=FALSE}
+# Ratings
+edx %>% group_by(rating) %>% summarise(n = n()) %>%  
+  ggplot(aes(x=rating, y=n)) + geom_line() +
+  ggtitle('Movie Ratings') + ylab('Number of Ratings')
+```
+
+The next plot shows the mean rating for all movies based on the week the review was given. This shows that time-series analysis may have some predictive power, but it is relatively small.
+
+```{r, echo=FALSE, message=FALSE}
+# Timestamp
+edx %>% mutate(date=round_date(date, unit='week')) %>% group_by(date) %>%
+  summarise(rating=mean(rating)) %>%
+  ggplot(aes(x=date, y=rating)) + geom_point() + geom_smooth()+
+  ggtitle('Average Rating per week') + ylab('Rating')
+```
+
+The following bar chart shows the number of movie genres. Drama and Comedy stand out as the biggest genres. 
+```{r, echo=FALSE}
+(genre_count <-edx %>% distinct(edx$movieId, .keep_all = TRUE) %>% select(9:26) %>% 
+    colSums()) %>% barplot(las=2, main = 'Movie Genres', ylab = 'Count')
+```
+
+To follow up on a previous idea of using time as a predictor. A check is done using movies containing the word 'Christmas' to see if holiday themed movies should be recommended more around that holiday.
+
+```{r, echo=FALSE, message=FALSE}
+# Christmas movies (proof that holiday movie discrimination is pointless)
+christmas_pattern <- "Christmas"
+christmas_movies <- edx %>% 
+  mutate(xmas = ifelse(str_detect(edx$title, christmas_pattern), 1, 0))
+christmas_movies <- christmas_movies[christmas_movies$xmas==1] %>% group_by(title)
+
+christmas_movies %>% ggplot(aes(x=month(date))) + geom_bar(stat = 'count') +
+  scale_x_continuous(breaks=c(1:12)) +
+  ggtitle("Reviews for Christmas Movies")+
+  xlab('Month')
+```
+
+These results may be somewhat surprising and suggest that holiday movies will not impact a recommendation system in a meaningful way.
+
+Using the insights from the readme file, and the exploratory analysis, prediction models are ready to be built. But first the data is split into separate training and test sets, so that the model accuracy can be measured (Reminder that the validation set remains untouched). For this approach, instead of starting with a complex model, a simple model will be built and itteratively improved, while serving as a benchmark to gauge progress.
+
+```{r, include=FALSE, warning=FALSE}
+# Split the training set into training/test sets to design/test models
+set.seed(420, sample.kind = 'Rounding')
+test_index <- createDataPartition(y=edx$rating, times = 1, p=0.1, list=F)
+edx_test <- edx[test_index,]
+edx_train <- edx[-test_index,]
+
+# This ensures we don't test on movies/users we have never seen before
+edx_test <- edx_test %>% semi_join(edx_train, by='movieId') %>%
+  semi_join(edx_train, by='userId')
+rm(test_index)
+```
+
+
+The first model will simply predict the average movie rating for all cases:
+
+```{r, echo=FALSE, message=FALSE}
+# This model predicts the avg movie rating for all cases
+mu <- edx_train$rating %>% mean()
+naive_rmse <- RMSE(edx_test$rating, mu)
+
+methods <- ('Just the average')
+rmses <- (naive_rmse)
+(model_evaluations <- tibble(method=methods, RMSE=rmses))
+```
+
+To improve this model, it is possible to account for the fact that movies are not received by audiences equally. A bias term is calculated by taking the average of the difference between the individual ratings of a movie and the average of all movie ratings. This will represent how a particular movie deviates from the average movie, and will be added onto our previous model: 
+
+```{r, echo=FALSE, message=FALSE}
+# This model builds on previous by introducing a movie bias term
+movie_avgs <- edx_train %>% group_by(movieId) %>% summarise(b_i=mean(rating-mu))
+movie_bias_model <- mu + edx_test %>% left_join(movie_avgs, by='movieId') %>% pull(b_i)
+movie_bias_rmse <- RMSE(edx_test$rating, movie_bias_model)
+
+methods <- c('Just the average', '+ movie bias')
+rmses <- c(naive_rmse, movie_bias_rmse)
+(model_evaluations <- tibble(method=methods, RMSE=rmses))
+```
+Likewise, different users have different movie critiquing tendencies. A bias term for users, is calculated by taking the average of each users rating after subtracting the average movie rating and movie bias term. The user bias term will account for how a particular movie deviates from the average movie for a particular user. Again this term is added onto the previous model:
+```{r, echo=FALSE, message=FALSE}
+# This model builds on previous by introducing a user bias term
+user_avgs <- edx_train %>% left_join(movie_avgs, by='movieId') %>% group_by(userId) %>% summarise(b_u=mean(rating-mu-b_i))
+user_movie_bias_model <- edx_test %>% left_join(movie_avgs, by='movieId') %>% left_join(user_avgs, by='userId') %>%
+  mutate(pred=mu+b_i+b_u) %>% pull(pred)
+user_movie_bias_rmse <- RMSE(edx_test$rating, user_movie_bias_model)
+
+methods <- c('Just the average', '+ movie bias', '+ user bias')
+rmses <- c(naive_rmse, movie_bias_rmse, user_movie_bias_rmse)
+(model_evaluations <- tibble(method=methods, RMSE=rmses))
+```
+
+The formula for the second bias term included the first bias term, so a quick check is done to see the results of switching the order of calculation:
+
+```{r, echo=FALSE, message=FALSE}
+# This model builds on mu by introducing a user bias term
+user_avgs <- edx_train %>% group_by(userId) %>% summarise(b_u=mean(rating-mu))
+user_bias_model <- mu + edx_test %>% left_join(user_avgs, by='userId') %>% pull(b_u)
+user_bias_rmse <- RMSE(edx_test$rating, user_bias_model)
+
+# This model builds on previous by introducing a movie bias term
+movie_avgs <- edx_train %>% left_join(user_avgs, by='userId') %>% group_by(movieId) %>% summarise(b_i=mean(rating-mu-b_u))
+movie_user_bias_model <- edx_test %>% left_join(movie_avgs, by='movieId') %>% left_join(user_avgs, by='userId') %>%
+  mutate(pred=mu+b_i+b_u) %>% pull(pred)
+movie_user_bias_rmse <- RMSE(edx_test$rating, movie_user_bias_model)
+
+methods <- c('Just the average', '+ movie bias', '+ user bias', 'reversed_biases')
+rmses <- c(naive_rmse, movie_bias_rmse, user_movie_bias_rmse, movie_user_bias_rmse)
+(model_evaluations <- tibble(method=methods, RMSE=rmses))
+```
+
+The best form of the model above will be itterated further by adding a regularization term, lambda, to combat over-fitting. In the context of The Netflix Challenge, over-fitting could occur due to a rarely watched movie being incorrectly labeled as exceptionally good and leading to unhelpful recommendations. Cross-validation is used to search for the optimal lambda term. A plot of the lambda search is shown below:
+
+```{r, echo=FALSE, message=FALSE}
+# This model builds on biased model by introducing a regularization (lambda) term 
+
+# Use cross-validation to search for best lambda term:
+#lambdas <- seq(0, 10, 0.25)
+lambdas <- seq(4, 5, 0.1)
+rmses <- sapply(lambdas, function(l){
+  mu <- mean(edx_train$rating)
+  b_i <- edx_train %>% group_by(movieId) %>% summarise(b_i=sum(rating-mu)/(n()+l))
+  
+  b_u <- edx_train %>% left_join(b_i, by='movieId') %>%
+    group_by(userId) %>% summarise(b_u=sum(rating-b_i-mu)/(n()+l))
+  
+  predicted_ratings <- edx_test %>% left_join(b_i, by='movieId') %>%
+    left_join(b_u, by='userId') %>% mutate(pred=mu+b_i+b_u) %>%
+    pull(pred)
+  
+  return(RMSE(predicted_ratings, edx_test$rating))
+})
+# visualize the search for best lambda
+qplot(lambdas, rmses)
+# save the best lambda term
+lambda <- lambdas[which.min(rmses)]
+
+#Regularized movie bias term
+b_i <- edx_train %>% group_by(movieId) %>% summarise(b_i=sum(rating-mu)/(n()+lambda))
+#Regularized user bias term
+b_u <- edx_train %>% left_join(b_i, by='movieId') %>%
+  group_by(userId) %>% summarise(b_u=sum(rating-b_i-mu)/(n()+lambda))
+
+regularized_user_movie_model <- edx_test %>% left_join(b_i, by='movieId') %>%
+  left_join(b_u, by='userId') %>% mutate(pred=mu+b_i+b_u) %>% pull(pred)
+regularized_user_movie_rmse <- RMSE(edx_test$rating, regularized_user_movie_model)
+
+methods <- c('Just the average', '+ movie bias', '+ user bias', 'reversed_biases', 'regularized model')
+rmses <- c(naive_rmse, movie_bias_rmse, user_movie_bias_rmse, movie_user_bias_rmse, regularized_user_movie_rmse)
+(model_evaluations <- tibble(method=methods, RMSE=rmses))
+```
+
+This model passes the accuracy goal for this project, however there is an alternate approach using matrix factorization. The idea behind this approach is that if the data is arranged into a matrix of users x movies, with the intersections representing an individual rating, then factorization would results in a matrix of user-preferences and a matrix of movie characteristics. It would be possible to group similar users and group similar movies, and then make recommendations based on these groups.
+The Recosystem package was built specifically to handle this type of matrix factorization. Recosystem takes three vectors: one for the users, one for the movies, and one for the ratings. This report includes two approaches: one without tuning the model parameters, and one after tuning the parameters. In tuning the parameters, multiple values were experimented with, however this process took a significant amount of computational time, so only these two models are included here.
+```{r, include=FALSE}
+#This model will use matrix factorization without tuning parameters
+if(!require(recosystem)) install.packages("recosystem", repos = "http://cran.us.r-project.org")
+set.seed(69, sample.kind = 'Rounding')
+
+train_set <- with(edx_train, data_memory(user_index=userId, item_index=movieId, rating=rating))
+test_set <- with(edx_test, data_memory(user_index=userId, item_index=movieId, rating=rating))
+
+# Create a model object
+r <- Reco()
+
+#train with tuned parameters
+r$train(train_set)
+
+#predict
+matrix_factor <- r$predict(test_set, out_memory())
+
+matrix_factor_rmse <- RMSE(matrix_factor, edx_test$rating)
+
+
+#This model will tune the training parameters
+
+# Call the $tune() method to select the best parameters with cross validation 
+# (This will take a while, see progress bar in R console)
+opts <- r$tune(train_set, opts = list(dim=c(10, 20, 30), #dim is number of latent factors
+                                      lrate=c(0.1, 0.2), #learning rate (step size in gradient decent)
+                                      costp_l1=0, costq_l1=0, #L1 regularization terms set to 0 (default is c(0.01, 0.1))
+                                      nthread=1, #number of threads for parallel computing
+                                      niter=10)) #number of iterations
+
+
+#train with tuned parameters
+r$train(train_set, opts=c(opts$min, nthread=1, niter=20))
+
+#predict
+matrix_factor_tuned <- r$predict(test_set, out_memory())
+
+matrix_factor_tuned_rmse <- RMSE(matrix_factor_tuned, edx_test$rating)
+```
+
+```{r, echo=FALSE, message=FALSE}
+# Evaluate the different models
+methods <- c('Just the average', '+ movie bias', '+ user bias', 'reversed_biases', 'regularized model', 'matrix factorization', 'matrix factorization (Tuned)')
+rmses <- c(naive_rmse, movie_bias_rmse, user_movie_bias_rmse, movie_user_bias_rmse, regularized_user_movie_rmse, matrix_factor_rmse, matrix_factor_tuned_rmse)
+(model_evaluations <- tibble(method=methods, RMSE=rmses))
+
+```
+
+This method of matrix factorization gives the best result. Even without tuning the parameters, it beats the other models. 
+
+# Results
+
+The best performing model is selected to use on the validation set. It is trained with the full edx data set and the rmse of the predictions is calculated below:
+
+```{r, include=FALSE}
+#This model will use matrix factorization without tuning parameters
+if(!require(recosystem)) install.packages("recosystem", repos = "http://cran.us.r-project.org")
+set.seed(69, sample.kind = 'Rounding')
+
+train_set <- with(edx, data_memory(user_index=userId, item_index=movieId, rating=rating))
+test_set <- with(validation, data_memory(user_index=userId, item_index=movieId, rating=rating))
+
+# Create a model object
+r <- Reco()
+
+# Tune parameters with cross validation
+opts <- r$tune(train_set, opts = list(dim=c(10, 20, 30), #dim is number of latent factors
+                                      lrate=c(0.1, 0.2), #learning rate (step size in gradient decent)
+                                      costp_l1=0, costq_l1=0, #L1 regularization terms set to 0 (default is c(0.01, 0.1))
+                                      nthread=1, #number of threads for parallel computing
+                                      niter=10)) #number of iterations
+#train with tuned parameters
+r$train(train_set, opts=c(opts$min, nthread=1, niter=20))
+
+#predict
+final_prediction <- r$predict(test_set, out_memory())
+```
+
+```{r, echo=FALSE, message=FALSE}
+final_rmse <- RMSE(final_prediction, validation$rating)
+cat('Final RMSE: ', final_rmse)
+```
+
+
+# Conclusion
+
+The goal of this report was to build a movie recomendation system using a dataset of past reviews. After importation, the data was cleaned and briefly explored. During the exploration phase, some potential patterns/problems in the data were identified. Several models were built using the insights from the explorations and prior intuition. In the end the goal of an rmse score below 0.8775 was achieved, but in practice the effort to improve the models would continue. One such further improvement could be implementing the genres feature into the model. Some of the limitations of the models presented here are:
+
+  * It is unclear how many users may be sharing a single id. Adding a feature on a movie streaming platform to account for multiple users would result in more personalized predictions.
+  * The data for a users search history is a powerfull predictor that a service like Netflix would have access to.
+  * The given database does not include features such as actors and directors due to limitations of the authors computer.
+  * The total amount of time a user spends watching a movie, could have some predictive power for other users. For example: multiple re-watches may have more value than a 5-star rating.
+
+
+As the data set is constantly growing, and the algorithm is being tested in the wild, it is realistic to check the rmse of the model post-implementation. A data pipeline of importing the newest results and adding them to the existing model would be important. Verifying that the updating rmse is behaving as expected is an easy way of making sure the model has not broken down.
+
+# Citation
+
+F. Maxwell Harper and Joseph A. Konstan. 2015. The MovieLens Datasets: History and Context. ACM Transactions on Interactive Intelligent Systems
+(TiiS) 5, 4, Article 19 (December 2015), 19 pages. DOI=http://dx.doi.org/10.1145/2827872
